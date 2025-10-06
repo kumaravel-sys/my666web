@@ -1,0 +1,699 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>VSE Stock Trainer — Fixed Chart (TradingView + Lightweight fallback)</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    :root{--bg:#f5f7fb;--card:#fff;--text:#111;--muted:#475569;--accent:#0f1724}
+    body{font-family:system-ui,-apple-system,"Segoe UI",Roboto, sans-serif;margin:0;padding:0;background:var(--bg);color:var(--text)}
+    header{background:var(--accent);color:#fff;padding:12px 20px;display:flex;justify-content:space-between;align-items:center}
+    header h1{margin:0;font-size:18px}
+    .container{padding:20px;max-width:1200px;margin:20px auto;background:var(--card);border-radius:10px;box-shadow:0 6px 20px rgba(10,20,40,0.06)}
+    input,button,select{padding:10px;border-radius:6px;border:1px solid #cbd5e1;font-size:14px}
+    button{cursor:pointer;background:var(--accent);color:#fff;border:none}
+    .hidden{display:none}
+    .card{padding:12px;border-radius:8px;background:var(--card);box-shadow:0 4px 10px rgba(15,23,42,0.04);margin-bottom:12px}
+    .small{font-size:13px;color:var(--muted)}
+    .danger{color:#dc2626}
+    .search-suggestions{background:var(--card);border:1px solid #e2e8f0;margin-top:6px;max-height:260px;overflow:auto;border-radius:6px;position:absolute;z-index:40;width:calc(100% - 24px)}
+    .suggest-item{padding:8px;cursor:pointer;border-bottom:1px solid #f1f5f9}
+    .suggest-item:hover{background:#f3f7fb}
+    table{width:100%;border-collapse:collapse;margin-top:12px}
+    th,td{text-align:left;padding:8px;border-bottom:1px solid #f1f5f9}
+    footer{text-align:center;padding:16px;color:var(--muted);font-size:13px;margin-top:20px}
+    .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:200}
+    .modal{background:var(--card);padding:16px;border-radius:8px;width:95%;max-width:900px;max-height:85vh;overflow:auto}
+  </style>
+</head>
+<body>
+<header>
+  <h1>VSE Stock Trainer — Fixed Chart</h1>
+</header>
+
+<main class="container">
+  <!-- Common password -->
+  <section id="view-common" class="card">
+    <h2>Enter common password</h2>
+    <input id="commonInput" type="password" placeholder="Common password" style="width:100%;margin-bottom:8px" />
+    <div style="margin-top:8px">
+      <button id="commonBtn">Continue</button>
+      <span id="commonErr" class="small danger" style="margin-left:12px"></span>
+    </div>
+  </section>
+
+  <!-- Login -->
+  <section id="view-login" class="card hidden">
+    <h2>Login / Register</h2>
+    <input id="nameInput" placeholder="Full name (for register)" style="width:100%;margin-bottom:8px" />
+    <input id="emailInput" placeholder="Email" style="width:100%;margin-bottom:8px" />
+    <input id="passInput" type="password" placeholder="Password" style="width:100%;margin-bottom:8px" />
+    <div style="display:flex;gap:8px">
+      <button id="authBtn">Login / Register</button>
+    </div>
+    <p id="authMsg" class="small" style="margin-top:8px"></p>
+  </section>
+
+  <!-- Dashboard -->
+  <section id="view-dash" class="hidden">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <div>
+        <h2>Dashboard</h2>
+        <div class="small">User: <b id="labelName"></b> — <span id="labelEmail"></span></div>
+      </div>
+      <div><button id="btnLogout" style="background:#ef4444">Logout</button></div>
+    </div>
+
+    <div class="card" style="position:relative">
+      <input id="searchBox" placeholder="Search company — start typing (e.g., Tata)" style="width:100%;padding:10px" />
+      <div id="suggestBox" class="search-suggestions hidden"></div>
+    </div>
+
+    <div style="display:flex;gap:16px;margin-top:12px">
+      <div style="flex:1">
+        <div id="chartCard" class="card hidden">
+          <h3 id="chartTitle">Select a company</h3>
+          <div id="chartWrap" style="height:420px"></div>
+          <div style="display:flex;gap:10px;align-items:center;margin-top:8px">
+            <div class="small">Live price: <b id="curPrice">-</b></div>
+            <div style="margin-left:auto">
+              <input id="qty" type="number" min="1" value="1" style="width:100px"/>
+              <button id="buyBtn">Buy</button>
+              <button id="sellBtn" style="background:#ef4444">Sell</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top:12px">
+          <h3>Portfolio</h3>
+          <div class="small">Balance: <b id="balanceDisplay">₹0</b></div>
+          <table id="holdingsTable"><thead><tr><th>Symbol</th><th>Qty</th><th>Avg</th><th>Price</th><th>Value</th></tr></thead><tbody></tbody></table>
+        </div>
+
+        <div class="card" style="margin-top:12px">
+          <h3>Pending Orders</h3>
+          <table id="pendingTable"><thead><tr><th>Type</th><th>Symbol</th><th>Qty</th><th>Placed</th><th>Status</th></tr></thead><tbody></tbody></table>
+        </div>
+
+        <div class="card" style="margin-top:12px">
+          <h3>Transactions</h3>
+          <table id="txTable"><thead><tr><th>Date</th><th>Type</th><th>Symbol</th><th>Qty</th><th>Price</th></tr></thead><tbody></tbody></table>
+        </div>
+      </div>
+
+      <div style="width:360px">
+        <div id="adminPanel" class="card hidden">
+          <h3>Admin — Users</h3>
+          <table id="adminTable"><thead><tr><th>#</th><th>Name</th><th>Email</th><th>Balance</th><th>Total</th></tr></thead><tbody></tbody></table>
+        </div>
+
+        <div class="card" style="margin-top:12px">
+          <h3>Notes</h3>
+          <div class="small">
+            - Chart tries TradingView first; if TradingView rejects the symbol it falls back to Lightweight Charts using Twelve Data. <br>
+            - Live price updates every <b>3 seconds</b>. <br>
+            - Pending orders execute when market open (simulated IST check).
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>VSE Stock Trainer — Demo</footer>
+
+<!-- TradingView + Lightweight Charts -->
+<script>
+  // load TradingView script (non-module) and set flag when ready
+  (function loadTV(cb){
+    const s = document.createElement('script');
+    s.src = "https://s3.tradingview.com/tv.js";
+    s.onload = ()=>{ window.TRADINGVIEW_LOADED = true; if(cb) cb(); };
+    s.onerror = ()=>{ console.warn('TradingView script failed to load'); window.TRADINGVIEW_LOADED = false; if(cb) cb(); };
+    document.head.appendChild(s);
+  })();
+</script>
+<script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+
+<script type="module">
+/* ---------------- FIREBASE MODULES ---------------- */
+import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-app.js";
+import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-auth.js";
+import { getFirestore, doc, getDoc, setDoc, updateDoc, collection, getDocs } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore.js";
+
+/* ---------------- CONFIG (your provided values) ---------------- */
+const firebaseConfig = {
+  apiKey: "AIzaSyBFLVuBT-sSdcq-MjiL5tB17mfeNpP2jN8",
+  authDomain: "vsestocktrainer-a5b04.firebaseapp.com",
+  projectId: "vsestocktrainer-a5b04",
+  storageBucket: "vsestocktrainer-a5b04.firebasestorage.app",
+  messagingSenderId: "652083011735",
+  appId: "1:652083011735:web:3ab6396a3d5888abec49d2"
+};
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+const TWELVE_KEY = "c933f15065e54a7b9d8908b084d72de1";
+const COMMON_PASS = "vse2k25";
+const ADMIN_EMAIL = "admin6@vse.com";
+const ADMIN_PASS = "adminvse2k25";
+
+/* ---------------- DOM refs ---------------- */
+const viewCommon = document.getElementById('view-common');
+const commonInput = document.getElementById('commonInput');
+const commonBtn = document.getElementById('commonBtn');
+const commonErr = document.getElementById('commonErr');
+
+const viewLogin = document.getElementById('view-login');
+const nameInput = document.getElementById('nameInput');
+const emailInput = document.getElementById('emailInput');
+const passInput = document.getElementById('passInput');
+const authBtn = document.getElementById('authBtn');
+const authMsg = document.getElementById('authMsg');
+
+const viewDash = document.getElementById('view-dash');
+const labelName = document.getElementById('labelName');
+const labelEmail = document.getElementById('labelEmail');
+const btnLogout = document.getElementById('btnLogout');
+
+const searchBox = document.getElementById('searchBox');
+const suggestBox = document.getElementById('suggestBox');
+
+const chartCard = document.getElementById('chartCard');
+const chartTitle = document.getElementById('chartTitle');
+const chartWrap = document.getElementById('chartWrap');
+const curPrice = document.getElementById('curPrice');
+
+const qtyInput = document.getElementById('qty');
+const buyBtn = document.getElementById('buyBtn');
+const sellBtn = document.getElementById('sellBtn');
+
+const balanceDisplay = document.getElementById('balanceDisplay');
+const holdingsTbody = document.querySelector('#holdingsTable tbody');
+const pendingTbody = document.querySelector('#pendingTable tbody');
+const txTbody = document.querySelector('#txTable tbody');
+
+const adminPanel = document.getElementById('adminPanel');
+const adminTbody = document.querySelector('#adminTable tbody');
+
+const adminView = document.getElementById('view-admin'); // created earlier in DOM? may be undefined if not visible; we handle later
+
+/* ---------------- App state ---------------- */
+let currentUser = null;
+let displayName = "";
+let balance = 50000;
+let holdings = {}; // { "TATAMOTORS.NS": { qty, avgPrice, currPrice } }
+let pending = []; // {type,symbol,qty,placedAt,status,requestedPrice}
+let transactions = []; // {date,type,symbol,qty,price,status}
+let currentSymbol = null; // TwelveData symbol e.g., TATAMOTORS.NS
+
+// lightweight chart objects
+let lwChart = null;
+let candleSeries = null;
+let tickSeries = null;
+let lastCandleTime = null;
+let priceIntervalId = null;
+
+/* ---------------- Common password ---------------- */
+commonBtn.addEventListener('click', ()=> {
+  const v = commonInput.value.trim();
+  if(v === COMMON_PASS){
+    viewCommon.classList.add('hidden');
+    viewLogin.classList.remove('hidden');
+    commonErr.textContent = "";
+  } else {
+    commonErr.textContent = "Wrong common password";
+  }
+});
+
+/* ---------------- Auth ---------------- */
+authBtn.addEventListener('click', async ()=> {
+  const name = nameInput.value.trim();
+  const email = emailInput.value.trim();
+  const pwd = passInput.value.trim();
+  if(!email || !pwd){ authMsg.textContent = "Fill email and password"; return; }
+  authMsg.textContent = "Working...";
+  try {
+    await signInWithEmailAndPassword(auth, email, pwd);
+    authMsg.textContent = "";
+  } catch(err){
+    // try create
+    try {
+      const cred = await createUserWithEmailAndPassword(auth, email, pwd);
+      // Save profile with plaintext password (demo only)
+      await setDoc(doc(db,'users',cred.user.uid), { name: name || email, email, password: pwd });
+      // create portfolio
+      await setDoc(doc(db,'portfolios',cred.user.uid), { balance, stocks: {}, pendingOrders: [], transactions: [] });
+      authMsg.textContent = "";
+    } catch(err2){
+      authMsg.textContent = err2.message;
+    }
+  }
+});
+
+/* ---------------- Auth state ---------------- */
+onAuthStateChanged(auth, async (u)=>{
+  if(u){
+    currentUser = u;
+    viewLogin.classList.add('hidden');
+    viewDash.classList.remove('hidden');
+
+    // load profile name (or ask)
+    const p = await getDoc(doc(db,'users',u.uid));
+    if(p.exists()) displayName = p.data().name || u.email;
+    else {
+      const name = prompt('Enter your full name (for admin view)') || u.email;
+      displayName = name;
+      await setDoc(doc(db,'users',u.uid), { name, email: u.email, password: '' });
+    }
+    labelName.textContent = displayName;
+    labelEmail.textContent = u.email;
+
+    if(u.email === ADMIN_EMAIL) adminPanel.classList.remove('hidden'); else adminPanel.classList.add('hidden');
+
+    await loadPortfolio();
+    // try execute pending if market open
+    await tryExecutePendingOrders();
+  } else {
+    currentUser = null;
+    viewDash.classList.add('hidden');
+    viewLogin.classList.remove('hidden');
+    stopPriceInterval();
+  }
+});
+
+btnLogout.addEventListener('click', async ()=> { await signOut(auth); });
+
+/* ---------------- Load / Save portfolio ---------------- */
+async function loadPortfolio(){
+  if(!currentUser) return;
+  const pDoc = await getDoc(doc(db,'portfolios',currentUser.uid));
+  if(pDoc.exists()){
+    const d = pDoc.data();
+    balance = d.balance ?? 50000;
+    holdings = d.stocks ?? {};
+    pending = d.pendingOrders ?? [];
+    transactions = d.transactions ?? [];
+  } else {
+    balance = 50000; holdings = {}; pending = []; transactions = [];
+    await setDoc(doc(db,'portfolios',currentUser.uid), { balance, stocks: {}, pendingOrders: [], transactions: [] });
+  }
+  // refresh holdings prices in background
+  refreshPricesForHoldings();
+  renderAll();
+}
+
+async function savePortfolio(){
+  if(!currentUser) return;
+  await setDoc(doc(db,'portfolios',currentUser.uid), {
+    balance, stocks: holdings, pendingOrders: pending, transactions
+  });
+}
+
+/* ---------------- Render UI ---------------- */
+function renderAll(){
+  balanceDisplay.textContent = "₹" + Number(balance).toLocaleString('en-IN', { maximumFractionDigits:2 });
+  holdingsTbody.innerHTML = '';
+  for(const sym in holdings){
+    const s = holdings[sym];
+    const price = s.currPrice ?? 0;
+    const value = price * s.qty;
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${sym}</td><td>${s.qty}</td><td>${Number(s.avgPrice).toFixed(2)}</td><td>${price?Number(price).toFixed(2):'-'}</td><td>${Number(value).toFixed(2)}</td>`;
+    holdingsTbody.appendChild(tr);
+  }
+  // pending
+  pendingTbody.innerHTML = '';
+  pending.forEach(p=>{
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${p.type}</td><td>${p.symbol}</td><td>${p.qty}</td><td>${new Date(p.placedAt).toLocaleString()}</td><td>${p.status}</td>`;
+    pendingTbody.appendChild(tr);
+  });
+  // transactions
+  txTbody.innerHTML = '';
+  (transactions || []).slice().reverse().forEach(tx=>{
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${tx.date}</td><td>${tx.type}</td><td>${tx.symbol}</td><td>${tx.qty}</td><td>${Number(tx.price).toFixed(2)}</td>`;
+    txTbody.appendChild(tr);
+  });
+}
+
+/* ---------------- Search / Autocomplete ---------------- */
+let searchTimer = null;
+searchBox.addEventListener('input', ()=>{
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(async ()=>{
+    const q = searchBox.value.trim();
+    if(!q){ suggestBox.classList.add('hidden'); return; }
+    try {
+      const res = await fetch(`https://api.twelvedata.com/symbol_search?symbol=${encodeURIComponent(q)}&exchange=NSE&apikey=${TWELVE_KEY}`);
+      const j = await res.json();
+      const list = j.data || [];
+      if(list.length === 0){ suggestBox.innerHTML = `<div class="small">No results</div>`; suggestBox.classList.remove('hidden'); return; }
+      // move matches that start with q up
+      const ql = q.toLowerCase();
+      list.sort((a,b)=> ((a.name||'').toLowerCase().indexOf(ql) - (b.name||'').toLowerCase().indexOf(ql)));
+      suggestBox.innerHTML = list.slice(0,40).map(x=>`<div class="suggest-item" data-symbol="${x.symbol}" data-name="${x.name}">${x.name} — ${x.symbol}</div>`).join('');
+      suggestBox.classList.remove('hidden');
+    } catch(e){
+      suggestBox.innerHTML = `<div class="small danger">Search failed</div>`;
+      suggestBox.classList.remove('hidden');
+    }
+  }, 220);
+});
+
+suggestBox.addEventListener('click', async (ev)=>{
+  const it = ev.target.closest('.suggest-item');
+  if(!it) return;
+  const sym = it.getAttribute('data-symbol'); // e.g., TATAMOTORS.NS
+  const name = it.getAttribute('data-name');
+  searchBox.value = `${name} — ${sym}`;
+  suggestBox.classList.add('hidden');
+  await openSymbol(sym, name);
+});
+
+/* ---------------- TradingView mapping helper ---------------- */
+function toTradingViewSymbol(twelveSymbol){
+  if(!twelveSymbol) return null;
+  // Twelve returns e.g., TATAMOTORS.NS — we convert to NSE:TATAMOTORS
+  if(twelveSymbol.endsWith('.NS')) return 'NSE:' + twelveSymbol.replace('.NS','');
+  return 'NSE:' + twelveSymbol;
+}
+
+/* ---------------- Price helpers ---------------- */
+async function fetchPriceTD(symbol){
+  try{
+    const r = await fetch(`https://api.twelvedata.com/price?symbol=${encodeURIComponent(symbol)}&apikey=${TWELVE_KEY}`);
+    const j = await r.json();
+    if(j.price) return parseFloat(j.price);
+  }catch(e){ console.warn('price err', e); }
+  return null;
+}
+
+/* ---------------- Lightweight chart creation ---------------- */
+function createLightweightChart(container, candles){
+  // remove existing chart if any
+  container.innerHTML = '';
+  const chart = LightweightCharts.createChart(container, { width: container.clientWidth, height: 420, layout: { background: '#fff', textColor: '#000' }});
+  const cs = chart.addCandlestickSeries();
+  const ls = chart.addLineSeries({ lineWidth: 2 });
+  cs.setData(candles);
+  if(candles.length){
+    ls.setData([{ time: candles[candles.length-1].time, value: candles[candles.length-1].close }]);
+  }
+  window.addEventListener('resize', ()=> chart.applyOptions({ width: container.clientWidth }));
+  return { chart, cs, ls };
+}
+
+function parseTwelveCandles(values){
+  // TwelveData values are descending — convert to ascending and to {time,open,high,low,close}
+  const arr = values.slice().reverse().map(v=>{
+    // v.datetime likely "2025-10-06 10:15:00"
+    // lightweight-charts accepts time as "YYYY-MM-DD HH:MM" or unix timestamp seconds
+    // We'll convert to unix seconds.
+    const dtStr = v.datetime || v.timestamp;
+    const dt = new Date(dtStr + 'Z'); // ensure parsed as UTC if missing timezone
+    const t = Math.floor(dt.getTime()/1000);
+    return { time: t, open: parseFloat(v.open), high: parseFloat(v.high), low: parseFloat(v.low), close: parseFloat(v.close) };
+  });
+  return arr;
+}
+
+/* ---------------- openSymbol (attempt TradingView first, fallback to Lightweight) ---------------- */
+async function openSymbol(sym, name){
+  currentSymbol = sym;
+  chartCard.classList.remove('hidden');
+  chartTitle.textContent = `${name} — ${sym} (Live)`;
+
+  // fetch initial candles for fallback if needed
+  let candles = [];
+  try{
+    const r = await fetch(`https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(sym)}&interval=1min&outputsize=100&format=JSON&apikey=${TWELVE_KEY}`);
+    const j = await r.json();
+    if(j.values) candles = parseTwelveCandles(j.values);
+  }catch(e){ console.warn('candles err', e); }
+
+  // fetch initial price
+  const p = await fetchPriceTD(sym);
+  if(p) curPrice.textContent = "₹" + p.toFixed(2);
+
+  // attempt TradingView widget if available
+  const tvSym = toTradingViewSymbol(sym);
+  let usedTV = false;
+
+  if(window.TRADINGVIEW_LOADED && typeof TradingView !== 'undefined'){
+    // prepare container and create widget
+    chartWrap.innerHTML = ''; // clear
+    try{
+      new TradingView.widget({
+        width: "100%",
+        height: 420,
+        symbol: tvSym,
+        interval: "1",
+        timezone: "Asia/Kolkata",
+        theme: "light",
+        style: "1",
+        locale: "en",
+        container_id: "chartWrap"
+      });
+      usedTV = true;
+      // wait small time and detect if widget shows error text
+      await new Promise(res => setTimeout(res, 2500));
+      const ctText = chartWrap.innerText ? chartWrap.innerText.toLowerCase() : '';
+      if(ctText.includes('only available in tradingview') || ctText.includes('symbol is not supported') || ctText.includes('symbol not found')){
+        usedTV = false;
+      }
+    } catch(e){
+      console.warn('TradingView init err', e);
+      usedTV = false;
+    }
+  }
+
+  // If TradingView not usable, fallback to Lightweight Charts (candles)
+  if(!usedTV){
+    // create lw chart with candles we fetched, else show simple line using price
+    if(!candles || candles.length === 0){
+      // create tiny data from price
+      const nowUnix = Math.floor(Date.now()/1000);
+      candles = [{ time: nowUnix, open: p||0, high: p||0, low: p||0, close: p||0 }];
+    }
+    // create chart
+    const lw = createLightweightChart(chartWrap, candles);
+    lwChart = lw.chart; candleSeries = lw.cs; tickSeries = lw.ls;
+    if(candles.length) lastCandleTime = candles[candles.length-1].time;
+  }
+
+  // ensure price updates every 3 seconds and update lwChart if used
+  startPriceInterval(sym);
+}
+
+/* ---------------- Price interval management ---------------- */
+function startPriceInterval(sym){
+  stopPriceInterval();
+  // update immediate
+  (async ()=>{ const p = await fetchPriceTD(sym); if(p) curPrice.textContent = "₹"+p.toFixed(2); })();
+  priceIntervalId = setInterval(async ()=>{
+    const p = await fetchPriceTD(sym);
+    if(!p) return;
+    curPrice.textContent = "₹"+p.toFixed(2);
+    // update holdings price if we have this sym
+    if(holdings[sym]) holdings[sym].currPrice = p;
+    // if lw chart active, update tick series and last candle
+    if(tickSeries && lastCandleTime){
+      const now = Math.floor(Date.now()/1000);
+      try{
+        // update last candle close to current price (approx)
+        candleSeries.update({ time: lastCandleTime, open: undefined, high: undefined, low: undefined, close: p });
+      } catch(e){}
+      try{ tickSeries.update({ time: now, value: p }); } catch(e){}
+    }
+    renderAll();
+  }, 3000);
+}
+
+function stopPriceInterval(){ if(priceIntervalId){ clearInterval(priceIntervalId); priceIntervalId = null; } }
+
+/* ---------------- Buy/Sell & transactions & pending ---------------- */
+function isMarketOpenIST(){
+  const now = new Date();
+  const utc = now.getTime() + (now.getTimezoneOffset()*60000);
+  const ist = new Date(utc + 5.5*3600000);
+  const day = ist.getDay();
+  if(day === 0 || day === 6) return false;
+  const minutes = ist.getHours()*60 + ist.getMinutes();
+  const open = 9*60 + 15;
+  const close = 15*60 + 30;
+  return minutes >= open && minutes <= close;
+}
+
+async function placeOrder(type, symbol, qty){
+  qty = Number(qty);
+  if(!symbol || !qty || qty <= 0) return alert('Invalid order');
+  // fetch price
+  const price = await fetchPriceTD(symbol);
+  const placedAt = Date.now();
+  if(!isMarketOpenIST()){
+    pending.push({ type, symbol, qty, placedAt, status: 'PENDING', requestedPrice: price });
+    transactions.push({ date: new Date(placedAt).toLocaleString(), type, symbol, qty, price: price||0, status: 'PENDING' });
+    await savePortfolio();
+    renderAll();
+    return alert('Market closed — order saved pending');
+  }
+  // execute
+  if(type === 'BUY'){
+    if(!price) return alert('Price unavailable');
+    const cost = price * qty;
+    if(cost > balance) return alert('Insufficient balance');
+    balance -= cost;
+    if(!holdings[symbol]) holdings[symbol] = { qty:0, avgPrice:0, currPrice:price };
+    const h = holdings[symbol];
+    const newQty = h.qty + qty;
+    h.avgPrice = ((h.avgPrice*h.qty) + (price*qty)) / newQty;
+    h.qty = newQty; h.currPrice = price;
+    transactions.push({ date: new Date(placedAt).toLocaleString(), type: 'BUY', symbol, qty, price, status: 'EXECUTED' });
+  } else if(type === 'SELL'){
+    const h = holdings[symbol];
+    if(!h || h.qty < qty) return alert('Not enough holdings');
+    if(!price) return alert('Price unavailable');
+    h.qty -= qty;
+    balance += price*qty;
+    h.currPrice = price;
+    transactions.push({ date: new Date(placedAt).toLocaleString(), type: 'SELL', symbol, qty, price, status: 'EXECUTED' });
+    if(h.qty === 0) delete holdings[symbol];
+  }
+  await savePortfolio();
+  renderAll();
+}
+
+buyBtn.addEventListener('click', ()=> placeOrder('BUY', currentSymbol, Number(qtyInput.value||qtyInput.value)));
+sellBtn.addEventListener('click', ()=> placeOrder('SELL', currentSymbol, Number(qtyInput.value||qtyInput.value)));
+
+
+/* ---------------- Execute pending orders when market opens ---------------- */
+async function tryExecutePendingOrders(){
+  if(!currentUser) return;
+  if(!isMarketOpenIST()) return;
+  if(!pending || pending.length === 0) return;
+  for(let i = pending.length - 1; i >= 0; i--){
+    const po = pending[i];
+    try{
+      const price = await fetchPriceTD(po.symbol);
+      if(price === null) continue;
+      if(po.type === 'BUY'){
+        const cost = price * po.qty;
+        if(balance >= cost){
+          balance -= cost;
+          if(!holdings[po.symbol]) holdings[po.symbol] = { qty:0, avgPrice:0, currPrice:price };
+          const h = holdings[po.symbol];
+          const newQty = h.qty + po.qty;
+          h.avgPrice = ((h.avgPrice*h.qty) + (price*po.qty)) / newQty;
+          h.qty = newQty; h.currPrice = price;
+          transactions.push({ date: new Date().toLocaleString(), type:'BUY', symbol:po.symbol, qty:po.qty, price, status:'EXECUTED' });
+          pending.splice(i,1);
+        }
+      } else {
+        const h = holdings[po.symbol];
+        if(h && h.qty >= po.qty){
+          h.qty -= po.qty;
+          balance += price * po.qty;
+          h.currPrice = price;
+          transactions.push({ date: new Date().toLocaleString(), type:'SELL', symbol:po.symbol, qty:po.qty, price, status:'EXECUTED' });
+          if(h.qty === 0) delete holdings[po.symbol];
+          pending.splice(i,1);
+        }
+      }
+    } catch(e){ console.warn('pending exec err', e); }
+  }
+  await savePortfolio();
+  renderAll();
+}
+
+/* ---------------- Refresh holdings prices ---------------- */
+async function refreshPricesForHoldings(){
+  const syms = Object.keys(holdings);
+  if(syms.length === 0) return;
+  await Promise.all(syms.map(async (sym)=>{
+    try{
+      const p = await fetchPriceTD(sym);
+      if(p !== null) holdings[sym].currPrice = p;
+    } catch(e){}
+  }));
+  renderAll();
+}
+
+/* ---------------- Admin panel: show users with names & transactions ---------------- */
+document.getElementById('btn-open-admin')?.addEventListener('click', async ()=>{
+  // show admin view (reuse viewAdmin panel inside DOM)
+  document.getElementById('view-admin')?.classList.remove('hidden'); // if present
+  viewDash.classList.add('hidden');
+  adminTbody.innerHTML = '';
+  const snaps = await getDocs(collection(db,'portfolios'));
+  let i = 1;
+  for(const s of snaps.docs){
+    const uid = s.id;
+    const pdata = s.data();
+    // get user profile
+    let name = '-';
+    try{
+      const up = await getDoc(doc(db,'users',uid));
+      if(up.exists()) name = up.data().name || '-';
+    }catch(e){}
+    let holdingsVal = 0;
+    for(const sym in (pdata.stocks||{})){ const st = pdata.stocks[sym]; holdingsVal += (st.currPrice||0) * (st.qty||0); }
+    const total = (pdata.balance||0) + holdingsVal;
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${i++}</td><td>${name}</td><td>${uid}</td><td>${Number(pdata.balance||0).toFixed(2)}</td><td>${Number(total).toFixed(2)}</td>`;
+    tr.style.cursor = 'pointer';
+    tr.onclick = ()=> showUserModal(uid);
+    adminTbody.appendChild(tr);
+  }
+});
+
+document.getElementById('btn-admin-back')?.addEventListener('click', ()=>{
+  document.getElementById('view-admin')?.classList.add('hidden');
+  viewDash.classList.remove('hidden');
+});
+
+async function showUserModal(uid){
+  // fetch user & portfolio
+  const udoc = await getDoc(doc(db,'users',uid));
+  const pdoc = await getDoc(doc(db,'portfolios',uid));
+  const u = udoc.exists() ? udoc.data() : { name: uid, password: '-' };
+  const p = pdoc.exists() ? pdoc.data() : { balance:0, stocks:{}, pendingOrders:[], transactions:[] };
+  const modal = document.createElement('div'); modal.className='modal-backdrop';
+  modal.innerHTML = `<div class="modal"><button id="closeModal" style="float:right">Close</button><h3>${u.name} — ${uid}</h3><p><b>Password:</b> ${u.password || '(not stored)'}</p><h4>Holdings</h4><table style="width:100%"><thead><tr><th>Symbol</th><th>Qty</th><th>Avg</th><th>Curr</th><th>Value</th></tr></thead><tbody id="mHold"></tbody></table><h4>Pending</h4><table style="width:100%"><thead><tr><th>Type</th><th>Symbol</th><th>Qty</th><th>Placed</th><th>Status</th></tr></thead><tbody id="mPend"></tbody></table><h4>Transactions</h4><table style="width:100%"><thead><tr><th>Date</th><th>Type</th><th>Symbol</th><th>Qty</th><th>Price</th></tr></thead><tbody id="mTx"></tbody></table></div>`;
+  document.body.appendChild(modal);
+  modal.querySelector('#closeModal').onclick = ()=> modal.remove();
+  const mHold = modal.querySelector('#mHold');
+  for(const s in (p.stocks||{})){
+    const st = p.stocks[s];
+    const row = document.createElement('tr');
+    row.innerHTML = `<td>${s}</td><td>${st.qty}</td><td>${st.avgPrice}</td><td>${st.currPrice||'-'}</td><td>${((st.currPrice||0)*st.qty).toFixed(2)}</td>`;
+    mHold.appendChild(row);
+  }
+  const mPend = modal.querySelector('#mPend');
+  (p.pendingOrders||[]).forEach(pp=>{
+    const row = document.createElement('tr');
+    row.innerHTML = `<td>${pp.type}</td><td>${pp.symbol}</td><td>${pp.qty}</td><td>${new Date(pp.placedAt).toLocaleString()}</td><td>${pp.status}</td>`;
+    mPend.appendChild(row);
+  });
+  const mTx = modal.querySelector('#mTx');
+  (p.transactions||[]).slice().reverse().forEach(tx=>{
+    const row = document.createElement('tr');
+    row.innerHTML = `<td>${tx.date}</td><td>${tx.type}</td><td>${tx.symbol}</td><td>${tx.qty}</td><td>${tx.price}</td>`;
+    mTx.appendChild(row);
+  });
+}
+
+/* ---------------- Periodic pending check for current user ---------------- */
+setInterval(()=>{ if(currentUser) tryExecutePendingOrders(); }, 60*1000);
+
+/* ---------------- Before unload cleanup ---------------- */
+window.addEventListener('beforeunload', ()=> { stopPriceInterval(); });
+
+/* ---------------- Done ---------------- */
+console.log('App loaded — TradingView loaded?', !!window.TRADINGVIEW_LOADED);
+</script>
+</body>
+</html>
